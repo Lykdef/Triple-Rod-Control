@@ -53,6 +53,11 @@ find_package(OpenGL REQUIRED)
 add_executable(
     triple
     src/main.cpp
+    src/model.cpp
+    src/integrator.cpp
+    src/collision.cpp
+    src/scene.cpp
+
     ${imgui_SOURCE_DIR}/imgui.cpp
     ${imgui_SOURCE_DIR}/imgui_draw.cpp
     ${imgui_SOURCE_DIR}/imgui_tables.cpp
@@ -65,6 +70,7 @@ add_executable(
 target_include_directories(
     triple
     PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/include
     ${imgui_SOURCE_DIR}
     ${imgui_SOURCE_DIR}/backends
 )
