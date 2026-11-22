@@ -57,6 +57,7 @@ add_executable(
     src/integrator.cpp
     src/collision.cpp
     src/scene.cpp
+    src/sensors.cpp
 
     ${imgui_SOURCE_DIR}/imgui.cpp
     ${imgui_SOURCE_DIR}/imgui_draw.cpp
