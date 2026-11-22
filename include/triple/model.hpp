@@ -14,6 +14,9 @@ struct Parameters {
     double trackMax = 5;
     double cartHalfWidth = 0.28;
     double restitution = 1.0;
+
+    double jointDamping = 0.01;
+    double cartFriction = 0.05;
 };
 
 Vec4 derivative(const Vec4& y, double force, const Parameters& p);

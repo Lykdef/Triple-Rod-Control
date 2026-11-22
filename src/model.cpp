@@ -20,8 +20,11 @@ Vec4 derivative(const Vec4& y, double force, const Parameters& p) {
 
     const double A = M + m;
     const double B = m * a * c;
-    const double R = force + m * a * omega * omega * s;
-    const double G = m * g * a * s;
+    const double R = force 
+                     + m * a * omega * omega * s 
+                     - p.cartFriction * y(2) ;
+    const double G = m * g * a * s
+                     - p.jointDamping * omega;
 
     const double determinant = A * J - B * B;
     
