@@ -1,9 +1,7 @@
-#include "triple/model.hpp"
 #include "triple/integrator.hpp"
-#include "triple/collision.hpp"
 #include "triple/scene.hpp"
 #include "triple/sensors.hpp"
-#include "triple/pid.hpp"
+#include "triple/simulation.hpp"
 
 #include "imgui.h"
 #include "imgui_impl_glfw.h"
@@ -16,22 +14,6 @@
 
 // Main function to run the simulation
 int main() {
-    SensorSuite sensors;
-
-    PID positionPid(
-        1.0,   // kp
-        0.0,   // ki
-        2.0,   // kd
-        10.0); // 积分限幅
-
-    PID anglePid(
-        20.0,  // kp
-        0.0,   // ki
-        4.0,   // kd
-        10.0);
-
-    bool controllerEnabled = false;
-    const double maxControlForce = 30.0;
     if (!glfwInit()) {
         std::cerr << "Failed to initialize GLFW" << std::endl;
         return -1;
@@ -64,13 +46,9 @@ int main() {
 
     Parameters p;
 
-    Vec4 y(0.0, 0.15, 0.0, 0.0); // Initial state: [cart position, rod angle, cart velocity, rod angular velocity]
-    
-    bool running = true;
-    float manualForce = 0.0f;
+    SensorNoise noise;
+    Simulation simulation(p, noise);
 
-    double dt = 0.001; // Time step
-    double accumulator = 0.0;
     double lastTime = glfwGetTime();
 
     while (!glfwWindowShouldClose(window)) {
@@ -79,72 +57,17 @@ int main() {
         const double frameTime = std::min(currentTime - lastTime, 0.1);
         
         lastTime = currentTime;
-        if (running) {
-            accumulator += frameTime;
-            while (accumulator >= dt) {
-                double controlForce =
-                    static_cast<double>(manualForce);
-
-                if (controllerEnabled) {
-                    const Measurement measured =
-                        sensors.read(y);
-
-                    const double positionError =
-                        -measured.x;
-
-                    const double positionErrorRate =
-                        -measured.cartVelocity;
-
-                    double angleError =
-                        -measured.theta;
-
-                    angleError = std::atan2(
-                        std::sin(angleError),
-                        std::cos(angleError));
-
-                    const double angleErrorRate =
-                        -measured.omega;
-
-                    const double positionOutput =
-                        positionPid.update(
-                            positionError,
-                            positionErrorRate,
-                            dt);
-
-                    const double angleOutput =
-                        anglePid.update(
-                            angleError,
-                            angleErrorRate,
-                            dt);
-
-                    controlForce =
-                        - angleOutput;
-                        // positionOutput - angleOutput;
-                }
-
-                // 无论是否启用控制器，都限制最终执行器推力
-                controlForce = std::clamp(
-                    controlForce,
-                    -maxControlForce,
-                    maxControlForce);
-
-                // 必须使用最终合成的 controlForce
-                rk4Step(y, dt, controlForce, p);
-
-                solveWallCollision(y, p);
-
-                accumulator -= dt;
-            }
-        } else {
-            accumulator = 0.0;
-        }
+        simulation.update(frameTime);
 
         ImGui_ImplOpenGL3_NewFrame();
         ImGui_ImplGlfw_NewFrame();
         ImGui::NewFrame();
         
         // 先绘制物理场景到背景层
-        drawScene(y, p, io.DisplaySize);
+        drawScene(
+            simulation.state(),
+            simulation.parameters(),
+            io.DisplaySize);
 
         // 再绘制左侧控制面板
         ImGui::SetNextWindowPos(
@@ -165,46 +88,66 @@ int main() {
         ImGui::Text("Simulation");
         ImGui::Separator();
 
-        ImGui::Checkbox("Running", &running);
+        bool running = simulation.isRunning();
+
+        if (ImGui::Checkbox("Running", &running)) {
+            simulation.setRunning(running);
+        }
+
+        bool controllerEnabled =
+            simulation.isControllerEnabled();
+
+        if (ImGui::Checkbox(
+                "Controller Enabled",
+                &controllerEnabled)) {
+            simulation.setControllerEnabled(
+                controllerEnabled);
+        }
+
+        float manualForce = static_cast<float>(
+            simulation.manualForce());
+
+        if (ImGui::SliderFloat(
+                "Cart Force (N)",
+                &manualForce,
+                -30.0f,
+                30.0f)) {
+            simulation.setManualForce(manualForce);
+        }
 
         if (ImGui::Button("Reset")) {
-            y << 0.0, 0.15, 0.0, 0.0;
-            accumulator = 0.0;
+            simulation.reset();
         }
 
-        ImGui::SameLine();
-
-        if (ImGui::Button("Zero Force")) { 
-            manualForce = 0.0f; 
-        }
-        ImGui::SliderFloat("Cart Force (N)", &manualForce, -30.0f, 30.0f);
-
-        ImGui::Separator();
-        ImGui::Text("State");
-
-        ImGui::Text("x:       %.5f m", y(0));
-        ImGui::Text("theta:   %.5f rad", y(1));
-        ImGui::Text("x_dot:   %.5f m/s", y(2));
-        ImGui::Text("omega:   %.5f rad/s", y(3));
+        const Vec4& state = simulation.state();
 
         ImGui::Separator();
 
         ImGui::Text(
-            "Total energy: %.7f J",
-            totalEnergy(y, p));
+            "Cart Position: %.5f m",
+            state(0));
 
-        ImGui::Text("Render: %.1f FPS", io.Framerate);
-        
-        ImGui::Checkbox(
-            "Controller Enabled",
-            &controllerEnabled);
-        if (ImGui::Button("Reset")) {
-            y << 0.0, 0.15, 0.0, 0.0;
-            accumulator = 0.0;
+        ImGui::Text(
+            "Rod Angle: %.5f rad",
+            state(1));
 
-            positionPid.reset();
-            anglePid.reset();
-        }
+        ImGui::Text(
+            "Cart Velocity: %.5f m/s",
+            state(2));
+
+        ImGui::Text(
+            "Angular Velocity: %.5f rad/s",
+            state(3));
+
+        ImGui::Text(
+            "Applied Force: %.5f N",
+            simulation.appliedForce());
+
+        ImGui::Text(
+            "Energy: %.6f J",
+            totalEnergy(
+                simulation.state(),
+                simulation.parameters()));
 
         ImGui::End();
 
