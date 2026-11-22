@@ -60,6 +60,7 @@ add_executable(
     src/sensors.cpp
     src/pid.cpp
     src/simulation.cpp
+    src/window.cpp
 
     ${imgui_SOURCE_DIR}/imgui.cpp
     ${imgui_SOURCE_DIR}/imgui_draw.cpp

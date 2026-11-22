@@ -2,6 +2,7 @@
 #include "triple/scene.hpp"
 #include "triple/sensors.hpp"
 #include "triple/simulation.hpp"
+#include "triple/window.hpp"
 
 #include "imgui.h"
 #include "imgui_impl_glfw.h"
@@ -14,83 +15,37 @@
 
 // Main function to run the simulation
 int main() {
-    if (!glfwInit()) {
-        std::cerr << "Failed to initialize GLFW" << std::endl;
-        return -1;
-    }
+    try {
+        Window window(1280, 720, "Triple");
+        Parameters p;
 
-    glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, 3);
-    glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 0);
+        SensorNoise noise;
+        Simulation simulation(p, noise);
 
-    GLFWwindow* window = glfwCreateWindow(
-        1280, 720, "Inverted Pendulum Simulation", NULL, NULL);
-    if (window == NULL) {
-        std::cerr << "Failed to create GLFW window" << std::endl;
-        glfwTerminate();
-        return -1;
-    }
+        double lastTime = window.time();
 
-    glfwMakeContextCurrent(window);
-    glfwSwapInterval(1); // Enable vsync
-
-    IMGUI_CHECKVERSION();
-    ImGui::CreateContext();
-
-    ImGuiIO& io = ImGui::GetIO(); 
-    io.ConfigFlags |= ImGuiConfigFlags_NavEnableKeyboard;  // Enable Keyboard Controls
-
-    ImGui::StyleColorsDark();
-
-    ImGui_ImplGlfw_InitForOpenGL(window, true);
-    ImGui_ImplOpenGL3_Init("#version 120");
-
-    Parameters p;
-
-    SensorNoise noise;
-    Simulation simulation(p, noise);
-
-    double lastTime = glfwGetTime();
-
-    while (!glfwWindowShouldClose(window)) {
-        glfwPollEvents();
-        const double currentTime = glfwGetTime();
+    while (!window.shouldClose()) {
+        window.pollEvents();
+        const double currentTime = window.time();
         const double frameTime = std::min(currentTime - lastTime, 0.1);
         
         lastTime = currentTime;
         simulation.update(frameTime);
-
-        ImGui_ImplOpenGL3_NewFrame();
-        ImGui_ImplGlfw_NewFrame();
-        ImGui::NewFrame();
+        window.beginFrame();
         
-        // 先绘制物理场景到背景层
         drawScene(
             simulation.state(),
             simulation.parameters(),
-            io.DisplaySize);
+            window.displaySize());
 
-        // 再绘制左侧控制面板
-        ImGui::SetNextWindowPos(
-            ImVec2(10.0f, 10.0f),
-            ImGuiCond_Always);
+        ImGui::Begin("Controls");
 
-        ImGui::SetNextWindowSize(
-            ImVec2(300.0f, io.DisplaySize.y - 20.0f),
-            ImGuiCond_Always);
+        bool running =
+            simulation.isRunning();
 
-        ImGui::Begin(
-            "Controls",
-            nullptr,
-            ImGuiWindowFlags_NoResize
-            | ImGuiWindowFlags_NoMove
-            | ImGuiWindowFlags_NoSavedSettings);
-
-        ImGui::Text("Simulation");
-        ImGui::Separator();
-
-        bool running = simulation.isRunning();
-
-        if (ImGui::Checkbox("Running", &running)) {
+        if (ImGui::Checkbox(
+                "Running",
+                &running)) {
             simulation.setRunning(running);
         }
 
@@ -104,22 +59,25 @@ int main() {
                 controllerEnabled);
         }
 
-        float manualForce = static_cast<float>(
-            simulation.manualForce());
+        float manualForce =
+            static_cast<float>(
+                simulation.manualForce());
 
         if (ImGui::SliderFloat(
                 "Cart Force (N)",
                 &manualForce,
                 -30.0f,
                 30.0f)) {
-            simulation.setManualForce(manualForce);
+            simulation.setManualForce(
+                manualForce);
         }
 
         if (ImGui::Button("Reset")) {
             simulation.reset();
         }
 
-        const Vec4& state = simulation.state();
+        const Vec4& state =
+            simulation.state();
 
         ImGui::Separator();
 
@@ -151,33 +109,16 @@ int main() {
 
         ImGui::End();
 
-        // 渲染
-        ImGui::Render();
-
-        int displayWidth = 0;
-        int displayHeight = 0;
-
-        glfwGetFramebufferSize(
-            window,
-            &displayWidth,
-            &displayHeight);
-
-        glViewport(0, 0, displayWidth, displayHeight);
-
-        glClearColor(0.08f, 0.09f, 0.11f, 1.0f);
-        glClear(GL_COLOR_BUFFER_BIT);
-
-        ImGui_ImplOpenGL3_RenderDrawData(
-            ImGui::GetDrawData());
-
-        glfwSwapBuffers(window);
+        // 渲染并交换缓冲区。
+        window.endFrame();
     }
-    ImGui_ImplOpenGL3_Shutdown();
-    ImGui_ImplGlfw_Shutdown();
-    ImGui::DestroyContext();
+    } catch (const std::exception& error) {
+        std::cerr
+            << "Application error: "
+            << error.what()
+            << '\n';
 
-    glfwDestroyWindow(window);
-    glfwTerminate();
-
+        return 1;
+    }
     return 0;
 }
