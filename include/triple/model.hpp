@@ -10,8 +10,8 @@ struct Parameters {
     double rodLength = 0.6;
     double gravity = 9.82;
 
-    double trackMin = -1.5;
-    double trackMax = 1.5;
+    double trackMin = -5;
+    double trackMax = 5;
     double cartHalfWidth = 0.28;
     double restitution = 1.0;
 };

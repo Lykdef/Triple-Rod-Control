@@ -2,6 +2,8 @@
 #include "triple/integrator.hpp"
 #include "triple/collision.hpp"
 #include "triple/scene.hpp"
+#include "triple/sensors.hpp"
+#include "triple/pid.hpp"
 
 #include "imgui.h"
 #include "imgui_impl_glfw.h"
@@ -14,6 +16,22 @@
 
 // Main function to run the simulation
 int main() {
+    SensorSuite sensors;
+
+    PID positionPid(
+        1.0,   // kp
+        0.0,   // ki
+        2.0,   // kd
+        10.0); // 积分限幅
+
+    PID anglePid(
+        20.0,  // kp
+        0.0,   // ki
+        4.0,   // kd
+        10.0);
+
+    bool controllerEnabled = false;
+    const double maxControlForce = 30.0;
     if (!glfwInit()) {
         std::cerr << "Failed to initialize GLFW" << std::endl;
         return -1;
@@ -64,8 +82,57 @@ int main() {
         if (running) {
             accumulator += frameTime;
             while (accumulator >= dt) {
-                rk4Step(y, dt, static_cast<double>(manualForce), p);
+                double controlForce =
+                    static_cast<double>(manualForce);
+
+                if (controllerEnabled) {
+                    const Measurement measured =
+                        sensors.read(y);
+
+                    const double positionError =
+                        -measured.x;
+
+                    const double positionErrorRate =
+                        -measured.cartVelocity;
+
+                    double angleError =
+                        -measured.theta;
+
+                    angleError = std::atan2(
+                        std::sin(angleError),
+                        std::cos(angleError));
+
+                    const double angleErrorRate =
+                        -measured.omega;
+
+                    const double positionOutput =
+                        positionPid.update(
+                            positionError,
+                            positionErrorRate,
+                            dt);
+
+                    const double angleOutput =
+                        anglePid.update(
+                            angleError,
+                            angleErrorRate,
+                            dt);
+
+                    controlForce =
+                        - angleOutput;
+                        // positionOutput - angleOutput;
+                }
+
+                // 无论是否启用控制器，都限制最终执行器推力
+                controlForce = std::clamp(
+                    controlForce,
+                    -maxControlForce,
+                    maxControlForce);
+
+                // 必须使用最终合成的 controlForce
+                rk4Step(y, dt, controlForce, p);
+
                 solveWallCollision(y, p);
+
                 accumulator -= dt;
             }
         } else {
@@ -127,6 +194,17 @@ int main() {
             totalEnergy(y, p));
 
         ImGui::Text("Render: %.1f FPS", io.Framerate);
+        
+        ImGui::Checkbox(
+            "Controller Enabled",
+            &controllerEnabled);
+        if (ImGui::Button("Reset")) {
+            y << 0.0, 0.15, 0.0, 0.0;
+            accumulator = 0.0;
+
+            positionPid.reset();
+            anglePid.reset();
+        }
 
         ImGui::End();
 
