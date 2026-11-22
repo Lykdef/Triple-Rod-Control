@@ -21,3 +21,4 @@ Makefile
 
 .DS_Store
 Thumbs.db
+imgui.ini
