@@ -1,14 +1,8 @@
 #pragma once
 
 #include "triple/model.hpp"
-#include <random>
 
-struct Measurement {
-    double x = 0.0;
-    double theta = 0.0;
-    double cartVelocity = 0.0;
-    double omega = 0.0;
-};
+#include <random>
 
 struct SensorNoise {
     double xStdDev = 0.0;
@@ -20,10 +14,13 @@ struct SensorNoise {
 class SensorSuite {
 public:
     SensorNoise noise;
+
     SensorSuite();
-    Measurement read(const Vec4& trueState);
+    State read(const State& trueState);
+
 private:
     std::mt19937 randomEngine_;
     std::normal_distribution<double> standardNormal_;
+
     double sample(double standardDeviation);
 };

@@ -1,84 +1,82 @@
 #include "triple/simulation.hpp"
 
-#include "triple/integrator.hpp"
 #include "triple/collision.hpp"
+#include "triple/integrator.hpp"
 
 #include <algorithm>
 #include <cmath>
+#include <stdexcept>
 
-Simulation::Simulation(
-    const Parameters& parameters,
-    const SensorNoise& noise)
+Simulation::Simulation(const Parameters& parameters, const SensorNoise& noise)
     : parameters_(parameters),
-      positionPid_(1.0, 0.0, 2.0, 10.0),
-      anglePid_(20.0, 0.0, 4.0, 10.0) {
+      controller_(parameters_, dt_) {
     sensors_.noise = noise;
-
     reset();
 }
 
 void Simulation::reset() {
-    state_ << 0.0, 0.05, 0.0, 0.0;
+    State initialState = State::Zero(2 * (parameters_.linkCount() + 1));
+    initialState.segment(1, parameters_.linkCount()).setConstant(0.05);
+    reset(initialState);
+}
 
+void Simulation::resetHanging() {
+    State initialState = State::Zero(2 * (parameters_.linkCount() + 1));
+    constexpr double pi = 3.14159265358979323846;
+    initialState.segment(1, parameters_.linkCount()).setConstant(pi);
+    reset(initialState);
+}
+
+void Simulation::reset(const State& initialState) {
+    const Eigen::Index expectedSize =
+        static_cast<Eigen::Index>(2 * (parameters_.linkCount() + 1));
+    if (initialState.size() != expectedSize) {
+        throw std::invalid_argument("Initial state does not match the rod count.");
+    }
+
+    state_ = initialState;
     accumulator_ = 0.0;
     appliedForce_ = 0.0;
-
-    positionPid_.reset();
-    anglePid_.reset();
+    controller_.reset(state_);
 }
 
 void Simulation::update(double frameTime) {
     if (!running_) {
-        // 暂停期间不积累时间。
-        // 否则恢复运行后可能一次执行大量物理步。
+        // Do not accumulate a backlog while the simulation is paused.
         accumulator_ = 0.0;
         return;
     }
 
     accumulator_ += frameTime;
-
     while (accumulator_ >= dt_) {
         double controlForce = manualForce_;
-
         if (controllerEnabled_) {
-            const Measurement measured =
-                sensors_.read(state_);
-
-            double angleError = -measured.theta;
-            angleError = std::atan2(
-                std::sin(angleError),
-                std::cos(angleError));
-
-            const double angleErrorRate =
-                -measured.omega;
-
-            const double angleOutput =
-                anglePid_.update(
-                    angleError,
-                    angleErrorRate,
-                    dt_);
-
-            controlForce = -angleOutput;
+            controlForce = controller_.computeForce(sensors_.read(state_));
         }
 
         appliedForce_ = std::clamp(
-            controlForce,
-            -maxControlForce_,
-            maxControlForce_);
-
+            controlForce, -maxControlForce_, maxControlForce_);
         rk4Step(state_, dt_, appliedForce_, parameters_);
         solveWallCollision(state_, parameters_);
-
         accumulator_ -= dt_;
     }
 }
 
-const Vec4& Simulation::state() const {
+const State& Simulation::state() const {
     return state_;
 }
 
 const Parameters& Simulation::parameters() const {
     return parameters_;
+}
+
+void Simulation::setLinkCount(std::size_t count) {
+    if (parameters_.linkCount() == count) {
+        return;
+    }
+    parameters_.setLinkCount(count);
+    controller_ = AutomaticController(parameters_, dt_);
+    reset();
 }
 
 bool Simulation::isRunning() const {
@@ -89,9 +87,7 @@ void Simulation::setRunning(bool running) {
     if (running_ == running) {
         return;
     }
-
     running_ = running;
-
     accumulator_ = 0.0;
 }
 
@@ -100,13 +96,14 @@ bool Simulation::isControllerEnabled() const {
 }
 
 void Simulation::setControllerEnabled(bool enabled) {
-    if (controllerEnabled_ == enabled) {
-        return;
+    if (controllerEnabled_ != enabled && enabled) {
+        controller_.reset(state_);
     }
     controllerEnabled_ = enabled;
+}
 
-    positionPid_.reset();
-    anglePid_.reset();
+bool Simulation::isSwingingUp() const {
+    return controllerEnabled_ && controller_.isSwingingUp();
 }
 
 double Simulation::manualForce() const {

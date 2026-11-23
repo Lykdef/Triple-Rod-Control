@@ -2,4 +2,4 @@
 
 #include "triple/model.hpp"
 
-void solveWallCollision(Vec4& y, const Parameters& p);
+void solveWallCollision(State& y, const Parameters& p);

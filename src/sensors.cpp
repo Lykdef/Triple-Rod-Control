@@ -1,9 +1,8 @@
 #include "triple/sensors.hpp"
 
-SensorSuite::SensorSuite():
-    randomEngine_(std::random_device{}()),
-    standardNormal_(0.0, 1.0)
-{
+SensorSuite::SensorSuite()
+    : randomEngine_(std::random_device{}()),
+      standardNormal_(0.0, 1.0) {
 }
 
 double SensorSuite::sample(double standardDeviation) {
@@ -13,17 +12,15 @@ double SensorSuite::sample(double standardDeviation) {
     return standardDeviation * standardNormal_(randomEngine_);
 }
 
-Measurement SensorSuite::read(const Vec4& y) {
-    Measurement result;
+State SensorSuite::read(const State& y) {
+    const std::size_t n = (y.size() - 2) / 2;
+    State result = y;
 
-    result.x = 
-        y(0) + sample(noise.xStdDev);
-    result.theta = 
-        y(1) + sample(noise.thetaStdDev);
-    result.cartVelocity = 
-        y(2) + sample(noise.cartVelocityStdDev);
-    result.omega = 
-        y(3) + sample(noise.omegaStdDev);
-
+    result(0) += sample(noise.xStdDev);
+    result(n + 1) += sample(noise.cartVelocityStdDev);
+    for (std::size_t rod = 0; rod < n; ++rod) {
+        result(1 + rod) += sample(noise.thetaStdDev);
+        result(n + 2 + rod) += sample(noise.omegaStdDev);
+    }
     return result;
 }
